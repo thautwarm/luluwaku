@@ -1,5 +1,4 @@
 from __future__ import annotations
-from weakref import WeakKeyDictionary
 from luluwaku.core import *
 from luluwaku.items.weapon import Weapon
 
