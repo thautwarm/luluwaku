@@ -128,17 +128,21 @@ class PCons(PList[_R]):
             yield x.head
             x = x.tail
 
+
 ## Events
 
 
 Listener = typing.Callable[[], None]
 
+
 class Event:
     def __init__(self):
         self.listeners: set[Listener] = set()
+
     def __iadd__(self, listener: Listener):
         self.listeners.add(listener)
         return self
+
     def __isub__(self, listener: Listener):
         self.listeners.discard(listener)
         return self
@@ -147,11 +151,13 @@ class Event:
         for listener in self.listeners:
             listener()
 
+
 ## ECS
 
+
 class Metadata:
-    indices : dict[type, array.array[int]] = {}
-    exact_indices : dict[type, int] = {}
+    indices: dict[type, array.array[int]] = {}
+    exact_indices: dict[type, int] = {}
 
     def __init__(self, *types: type):
         exact_indices: dict[type, int] = {}
@@ -159,13 +165,11 @@ class Metadata:
         for t in types:
             self._aware_component(t, exact_indices, indices)
         self.exact_indices = exact_indices
-        self.indices = {k: array.array('i', list(indices[k])) for k in indices}
+        self.indices = {k: array.array("i", list(indices[k])) for k in indices}
 
     @staticmethod
     def _aware_component(
-        t: type,
-        exact_indices: dict[type, int],
-        indices: dict[type, set[int]]
+        t: type, exact_indices: dict[type, int], indices: dict[type, set[int]]
     ):
         for each in t.__mro__:
             if each is Component:
@@ -176,7 +180,7 @@ class Metadata:
                 continue
             index = exact_indices[each] = len(exact_indices)
             if each not in indices:
-                indices[each] = { index }
+                indices[each] = {index}
             for k, v in indices.items():
                 if k is each:
                     continue
@@ -195,6 +199,7 @@ class Component:
 
     def ready(self, e: Entity):
         self.entity = e
+        self.entity.set_component(self)
 
     def init(self):
         pass
@@ -208,6 +213,7 @@ class Component:
 
 _C = typing.TypeVar("_C", bound=Component)
 
+
 class NoComponentError(Exception):
     t: typing.Type[Component]
 
@@ -215,9 +221,10 @@ class NoComponentError(Exception):
         super().__init__(f"Component {t} not found")
         self.t = t
 
+
 class Entity:
 
-    __components__ : tuple[typing.Type[Component], ...] = ()
+    __components__: tuple[typing.Type[Component], ...] = ()
     __metadata__: Metadata
 
     def __init_subclass__(cls) -> None:
@@ -255,16 +262,19 @@ class Entity:
         result: _C = t()
         result.ready(self)
         result.init()
-        self.components[index] = result
+        # self.components[index] = result
         return result
 
+
 ## Map
+
 
 class Map(Component):
     _cells: list[MapCell | None]
     row: int
     col: int
     name: str
+
     def __init__(self, row: int, col: int, name: str, entity: Entity):
         self.ready(entity)
         self._cells = [None] * (row * col)
@@ -286,7 +296,7 @@ class Map(Component):
     def find_cell_at_point(self, x: int, y: int) -> MapCell | None:
         i = y
         j = x
-        if i <= 0 < self.row and j <= 0 < self.col:
+        if 0 <= i < self.row and 0 <= j < self.col:
             return self[i, j]
         return None
 
@@ -303,9 +313,11 @@ class Map(Component):
                     assert cell
                     yield cell
 
+
 class MapListener(typing_extensions.Protocol):
     def __call__(self, __unit: Unit, __cell: MapCell) -> typing.Any:
         ...
+
 
 class MapCell:
     def __init__(self, Y: int, X: int, map: Map):
@@ -314,8 +326,14 @@ class MapCell:
         self.map = map
         self.pass_consumption: int = 1
         self.contained_units: set[Unit] = set()
-        self.enter_listeners : PList[MapListener] = PList.empty_cov()
-        self.exit_listeners : PList[MapListener] = PList.empty_cov()
+        self.enter_listeners: PList[MapListener] = PList.empty_cov()
+        self.exit_listeners: PList[MapListener] = PList.empty_cov()
+
+    def register_leave_events(self, listener: MapListener):
+        self.exit_listeners = PList.cons(listener, self.exit_listeners)
+
+    def register_enter_events(self, listener: MapListener):
+        self.enter_listeners = PList.cons(listener, self.enter_listeners)
 
     def unsafe_left_by(self, unit: Unit, cell: MapCell):
         if unit in self.contained_units:
@@ -332,12 +350,13 @@ class MapCell:
     def __repr__(self) -> str:
         return f"MapCell({self.x}, {self.y} at {self.map})"
 
+
 ## Positional
+
 
 class Positional(Component):
     _X = -1
     _Y = -1
-
 
     def __init__(self, map: Map, unit: Unit):
         self.ready(unit.entity)
@@ -348,7 +367,7 @@ class Positional(Component):
         return self.map[self._X, self._Y]
 
     def set_pos(self, x: int, y: int, map: Map | None = None):
-        new_map = map or self.map
+        self.map = new_map = map or self.map
         old_area = self.map.find_cell_at_point(self._X, self._Y)
         new_area = new_map.find_cell_at_point(x, y)
         self._X = x
@@ -362,10 +381,12 @@ class Positional(Component):
 
     def compute_distance(self, pos: Positional):
         if pos.map is self.map:
-            return math.hypot(self._X - pos._X, self._Y - pos._Y);
+            return math.hypot(self._X - pos._X, self._Y - pos._Y)
         return math.inf
 
-    def select_line_targets(self, distance: float, targetPos: Positional, radius: float = 1.0):
+    def select_line_targets(
+        self, distance: float, targetPos: Positional, radius: float = 1.0
+    ):
         delta = self.compute_distance(targetPos)
         if delta == 0.0:
             yield self.unit
@@ -392,6 +413,7 @@ class Positional(Component):
             x = dx * acc
             y = dy * acc
 
+
 ### GameState
 
 
@@ -399,14 +421,19 @@ class EffectPredicate(typing_extensions.Protocol):
     def __call__(self, __eff: Effect) -> bool:
         ...
 
-class _GameStateType:
-    __slots__ = []
 
+class Logger(typing_extensions.Protocol):
+    def __call__(self, __msg: str, unames: tuple[str, ...], public: bool) -> None:
+        ...
+
+
+class _GameStateType:
     def __init__(self):
         self.groups: dict[str, Group] = {}
         self.units: dict[str, Unit] = {}
         self._effect_loop: deque[Effect] = deque()
         self._effect_loop_cache: deque[Effect] = deque()
+        self._loggers: list[Logger] = []
 
     def add_effect(self, eff: Effect):
         if isinstance(eff, CompositeEffect):
@@ -415,6 +442,10 @@ class _GameStateType:
         else:
             self._effect_loop.append(eff)
             eff.on_start()
+
+    def log(self, msg: str, *unames: str, public: bool = True):
+        for each in self._loggers:
+            each(msg, unames, public)
 
     def matching_effects(self, f: EffectPredicate) -> typing.Iterable[Effect]:
         for eff in self._effect_loop:
@@ -432,11 +463,15 @@ class _GameStateType:
             if eff.on_step():
                 cache.append(eff)
         (self._effect_loop_cache, self._effect_loop) = (
-            self._effect_loop, self._effect_loop_cache)
+            self._effect_loop,
+            self._effect_loop_cache,
+        )
+
 
 GameState = _GameStateType()
 
 ### Step
+
 
 class Effect(abc.ABC):
     @abc.abstractmethod
@@ -475,7 +510,7 @@ class AttackEffect(Effect):
         create_damage: DamageCreation,
         distance: float,
         aoe: float = 0.0,
-        ):
+    ):
         self.attacker = attacker
         self.target = target
         self.create_damage = create_damage
@@ -486,7 +521,9 @@ class AttackEffect(Effect):
         attacker = self.attacker
         target = self.target
         if self.aoe:
-            targets = attacker[Positional].select_line_targets(self.distance, target[Positional], self.aoe)
+            targets = attacker[Positional].select_line_targets(
+                self.distance, target[Positional], self.aoe
+            )
         elif attacker[Positional].compute_distance(target[Positional]) <= self.distance:
             targets = [target]
         else:
@@ -506,6 +543,7 @@ class AttackEffect(Effect):
 
 
 ## Board
+
 
 class Board(Component):
     STR: float = 0.0
@@ -533,7 +571,6 @@ class Board(Component):
 
     def init(self):
         self.on_death = Event()
-
 
     def apply_STR(self, value: float):
         self.STR = value
@@ -571,6 +608,9 @@ class Board(Component):
             self.alive = False
             self.on_death()
 
+    def apply_ATTACK_DIST(self, value: float):
+        self.ATTACK_DIST = value
+
     def consume_efforts(self, value: int):
         if not self.alive:
             return False
@@ -582,16 +622,19 @@ class Board(Component):
 
 ## Battle System
 
+
 @dataclass
 class Damage:
-    focus: float
-    realDamage: float
-    physicalDamage: float
-    magicalDamage: float
+    focus: float = 0
+    real_damage: float = 0
+    physical_damage: float = 0
+    magical_damage: float = 0
+
 
 @dataclass
 class Shield:
     value: float
+
 
 class DamanageAccepter(Component):
     enable: bool
@@ -610,40 +653,42 @@ class DamanageAccepter(Component):
         if not self.enable:
             return
         unit = self[Unit]
-        if random.random() > get_ratio(1 + 0.9 * unit[Board].SPR * 0.6 * unit[Board].DEX - damage.focus):
-            damage.physicalDamage *= 2
-            damage.magicalDamage *= 2
+        if random.random() > get_ratio(
+            1 + 0.9 * unit[Board].SPR * 0.6 * unit[Board].DEX - damage.focus
+        ):
+            damage.physical_damage *= 2
+            damage.magical_damage *= 2
 
         for shield in self.physical_shields:
-            if damage.physicalDamage <= 0:
+            if damage.physical_damage <= 0:
                 break
 
-            if shield.value > damage.physicalDamage:
-                shield.value -= damage.physicalDamage
-                damage.physicalDamage = 0
+            if shield.value > damage.physical_damage:
+                shield.value -= damage.physical_damage
+                damage.physical_damage = 0
                 break
             else:
-                damage.physicalDamage -= shield.value
+                damage.physical_damage -= shield.value
                 shield.value = 0
 
         for shield in self.magical_shields:
-            if damage.magicalDamage <= 0:
+            if damage.magical_damage <= 0:
                 break
 
-            if shield.value > damage.magicalDamage:
-                shield.value -= damage.magicalDamage
-                damage.magicalDamage = 0
+            if shield.value > damage.magical_damage:
+                shield.value -= damage.magical_damage
+                damage.magical_damage = 0
                 break
             else:
-                damage.magicalDamage -= shield.value
+                damage.magical_damage -= shield.value
                 shield.value = 0
 
-        if damage.physicalDamage != 0:
-            unit[Board].apply_HP(unit[Board].HP - damage.physicalDamage)
-        if damage.magicalDamage != 0:
-            unit[Board].apply_HP(unit[Board].HP - damage.magicalDamage)
-        if damage.realDamage != 0:
-            unit[Board].apply_HP(unit[Board].HP - damage.realDamage)
+        if damage.physical_damage != 0:
+            unit[Board].apply_HP(unit[Board].HP - damage.physical_damage)
+        if damage.magical_damage != 0:
+            unit[Board].apply_HP(unit[Board].HP - damage.magical_damage)
+        if damage.real_damage != 0:
+            unit[Board].apply_HP(unit[Board].HP - damage.real_damage)
 
 
 class Dodger(Component):
@@ -651,12 +696,18 @@ class Dodger(Component):
         unit = self[Unit]
         if damage.focus > 3 * unit[Board].SPR:
             return False
-        if random.random() > get_ratio(damage.focus - 0.2 * unit[Board].SPR - 0.7 * unit[Board].DEX - 0.1 * unit[Board].CON):
+        if random.random() > get_ratio(
+            damage.focus
+            - 0.2 * unit[Board].SPR
+            - 0.7 * unit[Board].DEX
+            - 0.1 * unit[Board].CON
+        ):
             return True
         return False
 
 
 ## components/buff
+
 
 class Buff(abc.ABC):
     def on_start(self, target: Unit):
@@ -665,7 +716,9 @@ class Buff(abc.ABC):
     def on_end(self, target: Unit):
         target[Board].buffs.remove(self)
 
+
 ## Group
+
 
 class Group:
     name: str
@@ -691,18 +744,21 @@ class Group:
         Group.leave(unit)
         group.units.append(unit)
         unit.group = group
+        GameState.log(f"加入队伍【{group.name}】", unit.uname, public=True)
 
     @staticmethod
     def leave(unit: Unit):
         g = unit.group
         if g is not None:
             g.units.remove(unit)
+            GameState.log(f"离开队伍【{g.name}】", unit.uname, public=True)
             unit.group = None
             if not g.units:
                 GameState.groups.pop(g.name, None)
             else:
                 if g.owner is unit:
                     g.owner = g.units[0]
+                    GameState.log(f"队伍【{g.name}】的队长变更为【{unit.uname}】", public=True)
 
 
 ## components/Skill
@@ -710,8 +766,14 @@ class Skill(abc.ABC):
     casting_consumption: int = 2
 
     @abc.abstractmethod
-    def cast(self, emitter: Unit, target: Unit) -> Effect | None:
+    def cast(self, emitter: Unit, target: Entity | None) -> Effect | None:
         raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def name(self) -> str:
+        raise NotImplementedError
+
 
 class Caster(Component):
     learnt_skills: dict[Skill, float]
@@ -742,17 +804,23 @@ class Caster(Component):
         del self.learnt_skills[skill]
         return True
 
+
 ## components/Items
+
 
 class Item(abc.ABC):
     weight: int = 0
     activation_consumption = 1
 
+    @property
+    def name(self):
+        return self.get_name()
+
     @abc.abstractmethod
     def get_name(self) -> str:
         raise NotImplementedError
 
-    def on_activated(self, unit: Unit, dst: Entity):
+    def on_activated(self, unit: Unit, dst: Entity | None):
         return True
 
     def on_deactivated(self, unit: Unit):
@@ -764,11 +832,24 @@ class Item(abc.ABC):
     def on_uninstall(self, unit: Unit):
         self.on_deactivated(unit)
 
+    @staticmethod
+    def install(unit: Unit, item: Item):
+        bag = unit[Bag]
+        return bag.add_item(item)
+
+    @staticmethod
+    def uninstall(unit: Unit, item: Item):
+        bag = unit[Bag]
+        return bag.remove_item(item)
+
+
 class ItemPredicate(typing_extensions.Protocol):
     def __call__(self, item: Item) -> bool:
         ...
 
+
 MAX_MONEY = 99999999
+
 
 class Bag(Component):
     max_capacity: int = 100
@@ -779,6 +860,9 @@ class Bag(Component):
     def init(self):
         super().init()
         self._items = set()
+
+    def all_items(self) -> typing.Iterable[Item]:
+        return self._items
 
     def matching_items(self, f: ItemPredicate):
         for item in self._items:
@@ -800,6 +884,7 @@ class Bag(Component):
             return False
         self._items.add(item)
         self.cur_capacity += item.weight
+        item.on_install(self[Unit])
         return True
 
     def has_item(self, item: Item):
@@ -810,18 +895,25 @@ class Bag(Component):
             return False
         self._items.remove(item)
         self.cur_capacity -= item.weight
+        item.on_uninstall(self[Unit])
         return True
+
+
 ## Unit
+
 
 class Unit(Component):
     group: Group | None = None
+    uname: str = ""
 
 
 ## Utils
 
+
 @typing.overload
 def clamp(value: int, minval: int, maxval: int) -> int:
     ...
+
 
 @typing.overload
 def clamp(value: float, minval: float, maxval: float) -> float:
@@ -831,7 +923,17 @@ def clamp(value: float, minval: float, maxval: float) -> float:
 def clamp(value: float, minval: float, maxval: float) -> float:
     return max(minval, min(value, maxval))
 
+
 def get_ratio(x: int | float) -> float:
     return x / (100 + abs(x))
+
+
+def sign(x: int | float) -> int:
+    if x > 0:
+        return 1
+    if x < 0:
+        return -1
+    return 0
+
 
 DamageCreation = typing.Callable[[Unit, Unit], Damage]
